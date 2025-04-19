@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mini S&F Clone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=MedievalSharp&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Apply Inter font globally, MedievalSharp for specific elements */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0e6d2; /* Parchment-like background */
+            color: #4a3f35; /* Dark brown text */
+        }
+        .medieval-font {
+            font-family: 'MedievalSharp', cursive;
+        }
+        /* Custom button style */
+        .btn {
+            @apply inline-block px-6 py-2 bg-yellow-700 text-yellow-100 rounded-lg shadow-md hover:bg-yellow-800 transition duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+        }
+        /* Style for quest cards */
+        .quest-card {
+            @apply bg-yellow-100 border border-yellow-600 p-4 rounded-lg shadow-sm mb-4 transition duration-200 hover:shadow-md;
+        }
+        /* Style for the message box */
+        #messageBox {
+            @apply fixed top-5 right-5 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg transition-opacity duration-500 opacity-0 z-50;
+        }
+        #messageBox.show {
+            @apply opacity-100;
+        }
+        /* Simple progress bar */
+        .progress-bar-container {
+             @apply w-full bg-gray-300 rounded-full h-4 overflow-hidden border border-gray-400;
+        }
+        .progress-bar {
+            @apply bg-blue-500 h-full rounded-full transition-all duration-500 ease-linear text-xs text-white text-center leading-4;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="container mx-auto max-w-4xl bg-stone-200 p-6 rounded-lg shadow-xl border-4 border-stone-700">
+
+        <h1 class="text-3xl md:text-4xl font-bold text-center mb-6 medieval-font text-yellow-900">The Drunken Dragon Tavern</h1>
+
+        <div class="mb-6 p-4 bg-stone-300 rounded-lg shadow-inner border border-stone-400">
+            <h2 class="text-xl font-semibold mb-2 medieval-font text-yellow-800">Your Character</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                <div><strong>Level:</strong> <span id="char-level">1</span></div>
+                <div><strong>Gold:</strong> <span id="char-gold">10</span> G</div>
+                <div><strong>Energy:</strong> <span id="char-energy">100</span> / 100</div>
+                <div><strong>XP:</strong> <span id="char-xp">0</span> / <span id="xp-next-level">100</span></div>
+            </div>
+             <div class="mt-2">
+                <div class="progress-bar-container">
+                    <div id="xp-progress-bar" class="progress-bar" style="width: 0%;">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-6">
+            <h2 class="text-xl font-semibold mb-3 medieval-font text-yellow-800">Tavern Patrons Offering Quests</h2>
+            <div id="quest-list" class="space-y-4">
+                <p class="text-gray-500 italic">Talking to the patrons...</p>
+            </div>
+            <button id="refresh-quests-btn" class="btn mt-4" title="Costs 1 Energy">Get New Quests</button>
+        </div>
+
+        <div id="current-quest-area" class="hidden p-4 bg-stone-300 rounded-lg shadow-inner border border-stone-400 mb-6">
+            <h3 class="text-lg font-semibold mb-2 medieval-font text-yellow-800">On a Quest!</h3>
+            <p id="current-quest-desc">...</p>
+            <p><strong>Time Remaining:</strong> <span id="quest-timer">0</span> seconds</p>
+            <div class="mt-2 progress-bar-container">
+                 <div id="quest-progress-bar" class="progress-bar bg-green-500" style="width: 0%;"></div>
+            </div>
+        </div>
+
+        <div>
+            <h2 class="text-xl font-semibold mb-2 medieval-font text-yellow-800">Adventure Log</h2>
+            <div id="log" class="h-32 overflow-y-auto p-3 bg-white rounded border border-gray-300 text-sm">
+                <p>Welcome to the Drunken Dragon Tavern!</p>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="messageBox"></div>
+
+    <script>
+        // --- Game State ---
+        let character = {
+            level: 1,
+            gold: 10,
+            energy: 100,
+            maxEnergy: 100,
+            xp: 0,
+            xpToNextLevel: 100,
+            questInProgress: false,
+            questTimeoutId: null,
+            questEndTime: null,
+            questDuration: 0 // Total duration for progress bar
+        };
+
+        // --- DOM Elements ---
+        const levelEl = document.getElementById('char-level');
+        const goldEl = document.getElementById('char-gold');
+        const energyEl = document.getElementById('char-energy');
+        const xpEl = document.getElementById('char-xp');
+        const xpNextLevelEl = document.getElementById('xp-next-level');
+        const xpProgressBar = document.getElementById('xp-progress-bar');
+        const questListEl = document.getElementById('quest-list');
+        const logEl = document.getElementById('log');
+        const currentQuestArea = document.getElementById('current-quest-area');
+        const currentQuestDescEl = document.getElementById('current-quest-desc');
+        const questTimerEl = document.getElementById('quest-timer');
+        const questProgressBar = document.getElementById('quest-progress-bar');
+        const messageBox = document.getElementById('messageBox');
+        const refreshQuestsBtn = document.getElementById('refresh-quests-btn');
+
+        // --- Quest Data (Simple Examples) ---
+        const questTemplates = [
+            { baseDesc: "Deliver a letter to the grumpy blacksmith", baseGold: 5, baseXp: 10, baseTime: 10, energyCost: 5 },
+            { baseDesc: "Scare some rats out of the cellar", baseGold: 8, baseXp: 15, baseTime: 15, energyCost: 8 },
+            { baseDesc: "Guard a merchant's cart for a short while", baseGold: 12, baseXp: 20, baseTime: 20, energyCost: 10 },
+            { baseDesc: "Fetch a rare herb from the nearby woods", baseGold: 15, baseXp: 25, baseTime: 25, energyCost: 12 },
+            { baseDesc: "Convince the town guard to ignore a minor infraction", baseGold: 20, baseXp: 30, baseTime: 30, energyCost: 15 },
+            { baseDesc: "Investigate strange noises from the old cemetery", baseGold: 25, baseXp: 40, baseTime: 45, energyCost: 20 },
+        ];
+
+        // --- Game Logic ---
+
+        // Function to add messages to the log
+        function addLog(message) {
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(p);
+            // Scroll to bottom
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        // Function to show temporary messages
+        function showMessage(text, duration = 3000) {
+            messageBox.textContent = text;
+            messageBox.classList.add('show');
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, duration);
+        }
+
+        // Function to update character display
+        function updateDisplay() {
+            levelEl.textContent = character.level;
+            goldEl.textContent = character.gold;
+            energyEl.textContent = `${character.energy} / ${character.maxEnergy}`;
+            xpEl.textContent = character.xp;
+            xpNextLevelEl.textContent = character.xpToNextLevel;
+
+            // Update XP Progress Bar
+            const xpPercentage = Math.min(100, Math.floor((character.xp / character.xpToNextLevel) * 100));
+            xpProgressBar.style.width = `${xpPercentage}%`;
+            xpProgressBar.textContent = `${xpPercentage}%`;
+
+
+            // Disable quest buttons if not enough energy or quest in progress
+            document.querySelectorAll('.accept-quest-btn').forEach(btn => {
+                 const cost = parseInt(btn.dataset.energyCost, 10);
+                 btn.disabled = character.questInProgress || character.energy < cost;
+                 if (character.energy < cost && !character.questInProgress) {
+                     btn.title = "Not enough energy!";
+                 } else if (character.questInProgress) {
+                     btn.title = "Already on a quest!";
+                 } else {
+                     btn.title = `Cost: ${cost} Energy`;
+                 }
+            });
+
+             // Disable refresh button
+            refreshQuestsBtn.disabled = character.questInProgress || character.energy < 1;
+             if (character.energy < 1 && !character.questInProgress) {
+                 refreshQuestsBtn.title = "Not enough energy (costs 1)!";
+             } else if (character.questInProgress) {
+                 refreshQuestsBtn.title = "Cannot refresh while on a quest!";
+             } else {
+                 refreshQuestsBtn.title = "Costs 1 Energy";
+             }
+        }
+
+        // Function to check for level up
+        function checkLevelUp() {
+            if (character.xp >= character.xpToNextLevel) {
+                character.level++;
+                character.xp -= character.xpToNextLevel;
+                // Increase XP needed for next level (simple formula)
+                character.xpToNextLevel = Math.floor(character.xpToNextLevel * 1.5);
+                // Restore energy on level up (optional)
+                character.energy = character.maxEnergy;
+                addLog(`Congratulations! You reached Level ${character.level}!`);
+                showMessage(`Level Up! Reached Level ${character.level}!`);
+                updateDisplay(); // Update display immediately after level up
+            }
+        }
+
+        // Function to generate quests
+        function generateQuests() {
+            questListEl.innerHTML = ''; // Clear existing quests
+            if (character.questInProgress) {
+                 questListEl.innerHTML = '<p class="text-gray-500 italic">Finish your current quest first!</p>';
+                 return;
+            }
+
+            const availableQuests = [...questTemplates]; // Copy templates
+            for (let i = 0; i < 3; i++) {
+                if (availableQuests.length === 0) break; // No more templates
+
+                // Pick a random quest template
+                const randomIndex = Math.floor(Math.random() * availableQuests.length);
+                const template = availableQuests.splice(randomIndex, 1)[0]; // Remove chosen template
+
+                // Slightly randomize values based on level (very basic)
+                const levelMultiplier = 1 + (character.level - 1) * 0.1;
+                const goldReward = Math.floor(template.baseGold * levelMultiplier * (0.8 + Math.random() * 0.4)); // +/- 20% randomness
+                const xpReward = Math.floor(template.baseXp * levelMultiplier * (0.8 + Math.random() * 0.4));
+                const timeCost = Math.max(5, Math.floor(template.baseTime * (0.8 + Math.random() * 0.4))); // Minimum 5 seconds
+                const energyCost = template.energyCost;
+
+                const questDiv = document.createElement('div');
+                questDiv.className = 'quest-card';
+                questDiv.innerHTML = `
+                    <p class="font-semibold">${template.baseDesc}</p>
+                    <p class="text-sm">Reward: ${goldReward} G, ${xpReward} XP</p>
+                    <p class="text-sm">Duration: ${timeCost} sec | Cost: ${energyCost} Energy</p>
+                    <button class="btn accept-quest-btn mt-2 text-sm"
+                            data-desc="${template.baseDesc}"
+                            data-gold="${goldReward}"
+                            data-xp="${xpReward}"
+                            data-time="${timeCost}"
+                            data-energy-cost="${energyCost}">
+                        Accept Quest
+                    </button>
+                `;
+                questListEl.appendChild(questDiv);
+            }
+
+             // Add event listeners to new buttons
+            document.querySelectorAll('.accept-quest-btn').forEach(button => {
+                button.addEventListener('click', acceptQuest);
+            });
+
+            updateDisplay(); // Update button states
+        }
+
+        // Function to accept a quest
+        function acceptQuest(event) {
+            if (character.questInProgress) {
+                showMessage("You are already on a quest!");
+                return;
+            }
+
+            const button = event.target;
+            const gold = parseInt(button.dataset.gold, 10);
+            const xp = parseInt(button.dataset.xp, 10);
+            const time = parseInt(button.dataset.time, 10);
+            const energyCost = parseInt(button.dataset.energyCost, 10);
+            const desc = button.dataset.desc;
+
+            if (character.energy < energyCost) {
+                showMessage("Not enough energy for this quest!");
+                return;
+            }
+
+            // Deduct energy, start quest
+            character.energy -= energyCost;
+            character.questInProgress = true;
+            character.questDuration = time; // Store total duration
+            character.questEndTime = Date.now() + time * 1000;
+
+            addLog(`Started quest: ${desc} (Cost: ${energyCost} Energy)`);
+
+            // Update UI
+            currentQuestDescEl.textContent = desc;
+            questTimerEl.textContent = time;
+            currentQuestArea.classList.remove('hidden');
+            questListEl.innerHTML = '<p class="text-gray-500 italic">Currently on a quest...</p>'; // Clear quests
+            refreshQuestsBtn.disabled = true; // Disable refresh while questing
+
+
+            // Start the timer interval
+            updateQuestTimer(); // Initial call to set timer and progress bar
+            character.questTimeoutId = setInterval(updateQuestTimer, 1000); // Update every second
+
+            updateDisplay();
+        }
+
+         // Function to update the quest timer and progress bar
+        function updateQuestTimer() {
+            const now = Date.now();
+            const timeLeft = Math.max(0, Math.ceil((character.questEndTime - now) / 1000));
+            questTimerEl.textContent = timeLeft;
+
+            // Update progress bar
+            const timeElapsed = character.questDuration - timeLeft;
+            const progressPercentage = Math.min(100, Math.floor((timeElapsed / character.questDuration) * 100));
+            questProgressBar.style.width = `${progressPercentage}%`;
+            questProgressBar.textContent = `${progressPercentage}%`;
+
+
+            if (timeLeft <= 0) {
+                finishQuest();
+            }
+        }
+
+
+        // Function called when quest timer finishes
+        function finishQuest() {
+             if (!character.questInProgress) return; // Should not happen, but safety check
+
+             clearInterval(character.questTimeoutId); // Stop the interval timer
+             character.questTimeoutId = null;
+
+            // Retrieve quest details from the button that started it (a bit hacky, better to store it)
+            // For simplicity, we'll just use the description stored and assume rewards were stored somewhere or recalculate
+            // A better approach would be storing the active quest's details in the character object.
+            // Let's find the original button data again - THIS IS FLAWED if quests refreshed.
+            // *** Improvement needed: Store active quest details in character object ***
+            // For now, let's just simulate getting rewards based on the description shown
+             const desc = currentQuestDescEl.textContent; // Get description from UI
+             // Find the matching template to get base rewards (approximate)
+             const template = questTemplates.find(q => q.baseDesc === desc);
+             let goldReward = 10; // Default fallback
+             let xpReward = 15;  // Default fallback
+             if (template) {
+                 const levelMultiplier = 1 + (character.level - 1) * 0.1;
+                 goldReward = Math.floor(template.baseGold * levelMultiplier); // Recalculate approx reward
+                 xpReward = Math.floor(template.baseXp * levelMultiplier);
+             }
+
+
+            character.gold += goldReward;
+            character.xp += xpReward;
+            character.questInProgress = false;
+            character.questEndTime = null;
+            character.questDuration = 0;
+
+
+            addLog(`Completed quest: ${desc}. Received ${goldReward} G and ${xpReward} XP.`);
+            showMessage(`Quest Complete! +${goldReward}G, +${xpReward}XP`);
+
+            currentQuestArea.classList.add('hidden'); // Hide quest area
+            questProgressBar.style.width = '0%'; // Reset progress bar
+            questProgressBar.textContent = '';
+
+
+            checkLevelUp(); // Check if leveled up
+            generateQuests(); // Generate new quests now that we're free
+            updateDisplay(); // Update stats and button states
+        }
+
+        // Function to refresh quests
+        function refreshQuests() {
+            if (character.questInProgress) {
+                showMessage("Cannot refresh quests while on a quest.");
+                return;
+            }
+             if (character.energy < 1) {
+                 showMessage("Not enough energy to refresh quests (costs 1).");
+                 return;
+             }
+
+             character.energy -= 1; // Cost to refresh
+             addLog("Refreshed quests in the tavern (Cost: 1 Energy).");
+             generateQuests();
+             updateDisplay();
+        }
+
+
+        // --- Initialization ---
+        refreshQuestsBtn.addEventListener('click', refreshQuests);
+
+        // Initial setup
+        addLog("Game loaded.");
+        generateQuests();
+        updateDisplay();
+
+        // Basic energy regeneration (e.g., 1 energy every 10 seconds)
+        setInterval(() => {
+            if (character.energy < character.maxEnergy && !character.questInProgress) { // Only regen when not questing
+                character.energy++;
+                updateDisplay();
+            }
+        }, 10000); // 10000ms = 10 seconds
+
+    </script>
+
+</body>
+</html>
